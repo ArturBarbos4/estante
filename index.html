@@ -150,6 +150,10 @@ label.btn { cursor: pointer; }
 .r-titles strong { display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .r-titles span { display: block; font-size: 12px; color: var(--r-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #r-stage { position: absolute; top: calc(52px + env(safe-area-inset-top, 0px)); bottom: calc(52px + env(safe-area-inset-bottom, 0px)); left: env(safe-area-inset-left, 0px); right: env(safe-area-inset-right, 0px); overflow: hidden; }
+.tapzone { position: absolute; z-index: 1; top: calc(52px + env(safe-area-inset-top, 0px)); bottom: calc(52px + env(safe-area-inset-bottom, 0px)); width: 24%; cursor: pointer; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
+.tapzone.prev { left: 0; }
+.tapzone.next { right: 0; }
+#reader.zoomed .tapzone { display: none; }
 #r-slider { flex: 1; min-width: 0; accent-color: var(--r-link); height: 28px; }
 #r-label { font-size: 12.5px; color: var(--r-muted); font-variant-numeric: tabular-nums; white-space: nowrap; max-width: 46%; overflow: hidden; text-overflow: ellipsis; }
 
@@ -229,7 +233,7 @@ label.btn { cursor: pointer; }
     <p>Toque em <strong>Adicionar livros</strong> e escolha arquivos EPUB, PDF, CBZ ou TXT no app Arquivos do iPad.</p>
   </div>
 
-  <p class="foot">Abre EPUB, PDF, quadrinhos CBZ e TXT. Os arquivos ficam guardados apenas neste aparelho e neste navegador. Livros com DRM (Kindle, Google Play) não abrem.</p>
+  <p class="foot">Abre EPUB, PDF, quadrinhos CBZ e TXT. Os arquivos ficam guardados apenas neste aparelho e neste navegador. Livros com DRM (Kindle, Google Play) não abrem. Versão 3.</p>
 </div>
 
 <div class="drop" id="drop" hidden><div>Solte os arquivos para adicionar à estante</div></div>
@@ -249,6 +253,8 @@ label.btn { cursor: pointer; }
   </header>
 
   <div id="r-stage"></div>
+  <div class="tapzone prev" id="tz-prev" aria-hidden="true"></div>
+  <div class="tapzone next" id="tz-next" aria-hidden="true"></div>
   <div class="r-msg" id="r-msg" hidden></div>
 
   <footer class="r-bottom">
@@ -635,7 +641,7 @@ async function openBook(id) {
   $('#r-title').textContent = meta.title; $('#r-author').textContent = meta.author || FORMAT_LABEL[meta.format];
   $('#r-slider').value = Math.round((meta.progress || 0) * 1000); $('#r-label').textContent = '';
   document.querySelectorAll('#p-set [data-for]').forEach(g => { g.hidden = !g.dataset.for.split(' ').includes(meta.format); });
-  syncSettingsUI(); closePanels(); stage.innerHTML = '';
+  syncSettingsUI(); updateZoomClass(); closePanels(); stage.innerHTML = '';
   showMsg(`<div><div class="spinner"></div>Abrindo “${esc(meta.title)}”…</div>`);
   try {
     const buf = await store.getFile(id);
@@ -694,6 +700,23 @@ $('#r-slider').addEventListener('input', e => {
 });
 $('#r-slider').addEventListener('change', e => { R.dragging = false; R.engine && R.engine.goTo(e.target.value / 1000); });
 
+/* áreas de toque nas laterais: ficam por cima do livro e funcionam igual em todos os formatos */
+for (const [sel, dir] of [['#tz-prev', -1], ['#tz-next', 1]]) {
+  const z = $(sel); let s = null;
+  z.addEventListener('touchstart', e => { const t = e.touches[0]; s = { x: t.clientX, y: t.clientY }; }, { passive: true });
+  z.addEventListener('touchend', e => {
+    if (!s) return; const t = e.changedTouches[0]; const dx = t.clientX - s.x, dy = t.clientY - s.y; s = null;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.4) { e.preventDefault(); ui.swipe(dx); }
+  }, { passive: false });
+  z.addEventListener('click', e => {
+    e.preventDefault();
+    if (Date.now() - R.swipeAt < 400) return;
+    if (closePanels() || !R.engine) return;
+    dir > 0 ? R.engine.next() : R.engine.prev();
+  });
+}
+function updateZoomClass() { reader.classList.toggle('zoomed', !!(R.meta && ['pdf', 'cbz'].includes(R.meta.format) && settings.zoom > 1)); }
+
 /* toques e gestos para PDF, quadrinhos e texto (EPUB recebe pelos eventos do próprio livro) */
 let touch0 = null;
 stage.addEventListener('touchstart', e => { if (e.touches.length === 1) touch0 = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() }; else touch0 = null; }, { passive: true });
@@ -740,6 +763,7 @@ function syncSettingsUI() {
 function applySettings() {
   saveSettings(); syncSettingsUI();
   reader.dataset.rtheme = resolvedTheme();
+  updateZoomClass();
   if (R.engine && R.engine.apply) R.engine.apply();
 }
 $('#set-theme').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; settings.theme = b.dataset.v; applySettings(); });

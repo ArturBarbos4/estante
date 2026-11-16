@@ -1,7 +1,7 @@
 // Service worker da Estante: deixa o app abrir mesmo sem internet.
 // Arquivos do próprio site: busca na rede primeiro (para receber atualizações) e usa o cache se estiver offline.
 // Bibliotecas e fontes externas: usa o cache primeiro, porque as versões são fixas.
-const CACHE = 'estante-v1';
+const CACHE = 'estante-v3';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png'];
 const LIBS = [
   'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
@@ -39,7 +39,7 @@ self.addEventListener('fetch', event => {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE);
       try {
-        const res = await fetch(req);
+        const res = await fetch(req, { cache: 'no-cache' });
         if (res && res.ok) cache.put(req, res.clone());
         return res;
       } catch (e) {
