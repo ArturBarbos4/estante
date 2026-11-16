@@ -591,7 +591,7 @@ document.addEventListener('dragover', e => { if ([...(e.dataTransfer?.types || [
 document.addEventListener('drop', e => { e.preventDefault(); dragDepth = 0; $('#drop').hidden = true; if ($('#reader').hidden && e.dataTransfer?.files?.length) importFiles(e.dataTransfer.files); });
 
 /* ---------- leitor ---------- */
-const R = { meta: null, engine: null, dragging: false, swipeAt: 0 };
+const R = { meta: null, engine: null, dragging: false, swipeAt: 0, tapAt: 0 };
 const reader = $('#reader'), stage = $('#r-stage');
 
 function resolvedTheme() { return settings.theme === 'auto' ? (isDark() ? 'noite' : 'claro') : settings.theme; }
@@ -699,13 +699,18 @@ let touch0 = null;
 stage.addEventListener('touchstart', e => { if (e.touches.length === 1) touch0 = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() }; else touch0 = null; }, { passive: true });
 stage.addEventListener('touchend', e => {
   if (!touch0 || !R.engine || R.engine.kind === 'epub') return;
-  const t = e.changedTouches[0]; const dx = t.clientX - touch0.x, dy = t.clientY - touch0.y; touch0 = null;
+  const t = e.changedTouches[0]; const dx = t.clientX - touch0.x, dy = t.clientY - touch0.y, dt = Date.now() - touch0.t; touch0 = null;
+  if (Math.abs(dx) < 12 && Math.abs(dy) < 12 && dt < 500) {
+    if (e.target.closest('a')) return;
+    const sel = window.getSelection && window.getSelection().toString(); if (sel) return;
+    R.tapAt = Date.now(); ui.tap(t.clientX); return;
+  }
   if (R.engine.zoomed && R.engine.zoomed()) return;
   if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.4) ui.swipe(dx);
 });
 stage.addEventListener('click', e => {
   if (!R.engine || R.engine.kind === 'epub') return;
-  if (Date.now() - R.swipeAt < 400) return;
+  if (Date.now() - R.swipeAt < 400 || Date.now() - (R.tapAt || 0) < 700) return;
   if (e.target.closest('a')) return;
   const sel = window.getSelection && window.getSelection().toString(); if (sel) return;
   ui.tap(e.clientX);
@@ -795,19 +800,31 @@ async function epubEngine(buf, meta) {
   });
 
   // toques, gestos e teclado vindos de dentro do livro
+  // No iPad o Safari não entrega "click" ao documento do livro quando o toque cai em texto comum,
+  // então o toque curto é detectado direto pelo touchend.
   let t0 = null;
-  rendition.on('touchstart', e => { const t = e.changedTouches && e.changedTouches[0]; t0 = t ? { x: t.screenX, y: t.screenY } : null; });
+  const frameLeft = e => { const fe = e.view && e.view.frameElement; return fe ? fe.getBoundingClientRect().left : 0; };
+  const blockedTap = e => {
+    if (e.target && e.target.closest && e.target.closest('a')) return true;
+    try { if (e.view && e.view.getSelection().toString()) return true; } catch (x) {}
+    return false;
+  };
+  rendition.on('touchstart', e => {
+    const t = e.changedTouches && e.changedTouches[0];
+    t0 = t && (!e.touches || e.touches.length === 1) ? { x: t.screenX, y: t.screenY, time: Date.now() } : null;
+  });
   rendition.on('touchend', e => {
     const t = e.changedTouches && e.changedTouches[0]; if (!t || !t0) return;
-    const dx = t.screenX - t0.x, dy = t.screenY - t0.y; t0 = null;
-    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.4) ui.swipe(dx);
+    const dx = t.screenX - t0.x, dy = t.screenY - t0.y, dt = Date.now() - t0.time; t0 = null;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.4) { ui.swipe(dx); return; }
+    if (Math.abs(dx) < 12 && Math.abs(dy) < 12 && dt < 500 && !blockedTap(e)) {
+      R.tapAt = Date.now(); ui.tap(frameLeft(e) + t.clientX);
+    }
   });
   rendition.on('click', e => {
-    if (Date.now() - R.swipeAt < 400) return;
-    if (e.target && e.target.closest && e.target.closest('a')) return;
-    try { if (e.view && e.view.getSelection().toString()) return; } catch (x) {}
-    const fe = e.view && e.view.frameElement; const left = fe ? fe.getBoundingClientRect().left : 0;
-    ui.tap(left + e.clientX);
+    if (Date.now() - R.swipeAt < 400 || Date.now() - (R.tapAt || 0) < 700) return;
+    if (blockedTap(e)) return;
+    ui.tap(frameLeft(e) + e.clientX);
   });
   rendition.on('keydown', handleKey);
 
